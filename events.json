@@ -1,0 +1,70 @@
+{
+  "note": "Record only. A headline is not a buy. Blank prices were not fetched.",
+  "events": [
+    {
+      "id": "2026-10-27-fomc",
+      "time_utc": "2026-10-27T18:00:00Z",
+      "kind": "scheduled",
+      "label": "FOMC meeting, 27-28 Oct",
+      "source": "https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
+      "btc_before": null,
+      "btc_15m": null,
+      "btc_1h": null,
+      "btc_24h": null,
+      "daily_close_under_floor": null,
+      "wash_note": ""
+    },
+    {
+      "id": "2026-10-14-cpi",
+      "time_utc": "2026-10-14T12:30:00Z",
+      "kind": "scheduled",
+      "label": "US CPI",
+      "source": "https://www.bls.gov/schedule/news_release/cpi.htm",
+      "btc_before": null,
+      "btc_15m": null,
+      "btc_1h": null,
+      "btc_24h": null,
+      "daily_close_under_floor": null,
+      "wash_note": ""
+    },
+    {
+      "id": "2026-10-08-flush",
+      "time_utc": "2026-10-08T12:00:00Z",
+      "kind": "shock",
+      "label": "Long liquidation flush after hawkish 16 Sep FOMC minutes",
+      "source": "https://www.federalreserve.gov/monetarypolicy/fomcminutes20260916.htm",
+      "btc_before": 83322,
+      "btc_15m": null,
+      "btc_1h": null,
+      "btc_24h": 81693,
+      "daily_close_under_floor": true,
+      "wash_note": "Session low about 80393. Reports put long liquidations in the hundreds of millions. Not a shelf buy."
+    },
+    {
+      "id": "2026-10-07-reject",
+      "time_utc": "2026-10-07T12:00:00Z",
+      "kind": "shock",
+      "label": "Third rejection near 87000 as yields rose",
+      "source": "https://www.coinreporter.io/2026/10/third-rejection-at-87000-while-stocks-print-records/",
+      "btc_before": 86600,
+      "btc_15m": null,
+      "btc_1h": null,
+      "btc_24h": 83276,
+      "daily_close_under_floor": false,
+      "wash_note": "Session low reported near 82759. About 94% of BTC liquidations were longs."
+    },
+    {
+      "id": "2025-10-10-tariff",
+      "time_utc": "2025-10-10T20:00:00Z",
+      "kind": "shock",
+      "label": "Tariff threat. Reported liquidation cascade.",
+      "source": "https://www.btcmarkets.net/blog/crypto-markets-liquidate-us19b-as-leverage-unwinds-on-tariff-shock",
+      "btc_before": 122000,
+      "btc_15m": null,
+      "btc_1h": null,
+      "btc_24h": 108000,
+      "daily_close_under_floor": null,
+      "wash_note": "Reported, not a tick. About $19B liquidated. Lows reported from about 102000 to 108000."
+    }
+  ]
+}
