@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BTC · cash or buy</title>
+<style>
+  body { margin: 0; background: #0e1117; color: #e7edf5; font-family: system-ui, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: 28px 18px 40px; }
+  .k { color: #8b97a8; font-size: 12px; letter-spacing: .12em; text-transform: uppercase; }
+  .price { font-size: 42px; font-weight: 650; margin: 8px 0 0; }
+  .sub { color: #8b97a8; margin-top: 4px; }
+  h1 { font-size: 26px; line-height: 1.25; margin: 18px 0 8px; }
+  .action { font-size: 17px; line-height: 1.45; }
+  .box { border: 1px solid #2a3344; border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
+  .on { border-color: #f5b942; }
+  .box b { display: block; margin-bottom: 4px; }
+  .box span { color: #8b97a8; font-size: 14px; line-height: 1.4; }
+  button { margin-top: 18px; background: #161b22; color: #e7edf5; border: 1px solid #2a3344; border-radius: 8px; padding: 10px 12px; }
+  .red { color: #ff4d6a; } .green { color: #1fd37a; } .amber { color: #f5b942; }
+</style>
+</head>
+<body>
+<main>
+  <div class="k">Liquidity sweep · BTC spot</div>
+  <div class="price" id="price">…</div>
+  <div class="sub" id="meta"></div>
+  <h1 id="title">Checking the daily close</h1>
+  <p class="action" id="action"></p>
+  <div class="box" id="p1"><b>1. Relief bounce</b><span>If price is under $82,500 and pushing $82,200–$82,500, do not buy. That is short covering.</span></div>
+  <div class="box" id="p2"><b>2. Real buy</b><span>Only inside $75,000–$76,500, after a closed candle rejects the low. Then buy 30%, not all.</span></div>
+  <div class="box" id="p3"><b>3. Sell strength</b><span>If already holding: sell some at $85,000, more at $90,000.</span></div>
+  <button type="button" id="go">Refresh</button>
+</main>
+<script>
+const floor = 82500, shelfLo = 75000, shelfHi = 76500;
+const $ = (id) => document.getElementById(id);
+function money(n) { return "$" + Math.round(n).toLocaleString("en-US"); }
+async function load() {
+  const [ticker, daily] = await Promise.all([
+    fetch("https://api.kraken.com/0/public/Ticker?pair=XBTUSD").then(r => r.json()),
+    fetch("https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440").then(r => r.json())
+  ]);
+  const t = ticker.result.XXBTZUSD;
+  const rows = daily.result.XXBTZUSD;
+  const last = +t.c[0];
+  const open = +t.o;
+  const closed = rows.filter(r => +r[0] + 86400 <= Date.now() / 1000);
+  const dailyClose = +closed[closed.length - 1][4];
+  const chg = (last - open) / open * 100;
+  let title, action, phase, color;
+  if (last >= shelfLo && last <= shelfHi && dailyClose < floor) {
+    phase = "p2"; color = "amber"; title = "At the shelf. Wait for the rejection.";
+    action = "Price is in the buy zone. Do not buy the falling candle. Buy 30% only after a closed bar bounces and closes near its high.";
+  } else if (dailyClose < floor) {
+    phase = "p1"; color = "red"; title = "Do not buy. Stay in cash.";
+    action = "Daily close is under $82,500. A bounce into $82,200–$82,500 is the trap, not the bottom.";
+  } else {
+    phase = "p3"; color = "green"; title = "Floor is back. No chase.";
+    action = "The breakdown is reclaimed. Still do not buy the middle. Sell only if you already hold, at $85,000 then $90,000.";
+  }
+  $("price").textContent = money(last);
+  $("meta").textContent = (chg >= 0 ? "+" : "") + chg.toFixed(2) + "% today · daily close " + money(dailyClose);
+  $("title").textContent = title;
+  $("title").className = color;
+  $("action").textContent = action;
+  ["p1","p2","p3"].forEach(id => $(id).classList.toggle("on", id === phase));
+}
+$("go").onclick = () => load().catch(() => { $("title").textContent = "Price feed failed. Try refresh."; });
+load().catch(() => { $("title").textContent = "Price feed failed. Try refresh."; });
+</script>
+</body>
+</html>
