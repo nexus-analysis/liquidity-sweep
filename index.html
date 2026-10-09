@@ -38,7 +38,7 @@
 <header>
   <div>
     <h1>Liquidity Sweep</h1>
-    <div class="sub">BTC spot · closed candles only · Kraken XBTUSD. A number not fetched this pass is not live.</div>
+    <div class="sub">BTC spot · closed candles only · Binance BTCUSDT spot. A number not fetched this pass is not live.</div>
   </div>
   <div class="price"><b id="px">—</b><div class="sub" id="asof">loading</div></div>
 </header>
@@ -67,7 +67,7 @@
 </main>
 <script>
 const FLOOR=82500, RECLAIM=83500, TRAP_LO=82200, TRAP_HI=82500, SHELF_LO=75000, SHELF_HI=76500, T1=85000, T2=90000;
-let data={hourly:[], daily:[], last:null, source:"Kraken XBTUSD", asof:""};
+let data={hourly:[], daily:[], last:null, source:"Binance BTCUSDT", asof:""};
 let events=[];
 const $=(id)=>document.getElementById(id);
 function money(n){ return n==null?"—":Math.round(n).toLocaleString("en-US"); }
@@ -75,7 +75,7 @@ function px(n){ return n==null?"blank":n; }
 function ema(vals, p){ const k=2/(p+1); let e=vals[0]; const o=[e]; for(let i=1;i<vals.length;i++){ e=vals[i]*k+e*(1-k); o.push(e);} return o; }
 function atr(bars, p){ const tr=[]; for(let i=0;i<bars.length;i++){ const b=bars[i]; tr.push(i?Math.max(b.h-b.l, Math.abs(b.h-bars[i-1].c), Math.abs(b.l-bars[i-1].c)):b.h-b.l); } const o=[]; let w=0; for(let i=0;i<tr.length;i++){ if(i<p){ w+=tr[i]; o.push(i===p-1?w/p:null);} else o.push((o[i-1]*(p-1)+tr[i])/p); } return o; }
 function stats(b){ const span=b.h-b.l; if(span<=0) return {wick:0, loc:0}; return {wick:(Math.min(b.o,b.c)-b.l)/span, loc:(b.c-b.l)/span}; }
-function closed(bars, width){ return bars.filter(b=>b.t+width<=Date.now()/1000); }
+function closed(bars, width){ return bars.filter(b=>(b.closeAt?b.closeAt: (b.t+width)*1000) <= Date.now()); }
 function resample(hourly){ const w=4*3600, m={}; hourly.forEach(b=>{ const k=b.t-(b.t%w); const c=m[k]; if(!c) m[k]={t:k,o:b.o,h:b.h,l:b.l,c:b.c,v:b.v}; else { c.h=Math.max(c.h,b.h); c.l=Math.min(c.l,b.l); c.c=b.c; c.v+=b.v; } }); return Object.values(m).sort((a,b)=>a.t-b.t); }
 function analyze(){
   const daily=closed(data.daily,86400), h4=closed(resample(data.hourly),4*3600);
@@ -162,23 +162,25 @@ function render(){
   renderEvents();
   return r;
 }
-function mapKraken(rows){ return rows.map(r=>({t:+r[0], o:+r[1], h:+r[2], l:+r[3], c:+r[4], v:+r[6]})); }
+function mapBinance(rows){ return rows.map(r=>({t:Math.floor(+r[0]/1000), o:+r[1], h:+r[2], l:+r[3], c:+r[4], v:+r[5], closeAt:+r[6]})); }
 async function loadEvents(){
   try { events=(await fetch("events.json?ts="+Date.now()).then(r=>r.json())).events||[]; }
   catch(e){ events=[]; }
   renderEvents();
 }
 async function load(){
+  const base="https://data-api.binance.vision/api/v3";
   const [ticker, hourly, daily]=await Promise.all([
-    fetch("https://api.kraken.com/0/public/Ticker?pair=XBTUSD").then(r=>r.json()),
-    fetch("https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=60").then(r=>r.json()),
-    fetch("https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440").then(r=>r.json())
+    fetch(base+"/ticker/price?symbol=BTCUSDT").then(r=>r.json()),
+    fetch(base+"/klines?symbol=BTCUSDT&interval=1h&limit=200").then(r=>r.json()),
+    fetch(base+"/klines?symbol=BTCUSDT&interval=1d&limit=120").then(r=>r.json())
   ]);
-  data.last=+ticker.result.XXBTZUSD.c[0];
-  data.hourly=mapKraken(hourly.result.XXBTZUSD);
-  data.daily=mapKraken(daily.result.XXBTZUSD);
+  if(!ticker.price || !Array.isArray(hourly) || !Array.isArray(daily)) throw new Error("bad binance");
+  data.last=+ticker.price;
+  data.hourly=mapBinance(hourly);
+  data.daily=mapBinance(daily);
   data.asof=new Date().toISOString().slice(0,16)+"Z";
-  data.source="Kraken XBTUSD";
+  data.source="Binance BTCUSDT";
   render();
 }
 $("refresh").onclick=()=>{ loadEvents(); load().catch(()=>{ $("asof").textContent="Price feed failed."; }); };
@@ -191,7 +193,7 @@ $("copy").onclick=async()=>{
   setTimeout(()=>{ $("copy").textContent="Copy metrics"; }, 1400);
 };
 loadEvents();
-load().catch(()=>{ $("why").textContent="Could not load Kraken candles. Press Refresh."; });
+load().catch(()=>{ $("why").textContent="Could not load Binance candles. Press Refresh."; });
 </script>
 </body>
 </html>
