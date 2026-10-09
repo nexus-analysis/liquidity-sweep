@@ -1,1 +1,202 @@
-PLACEHOLDER
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Liquidity Sweep — BTC spot</title>
+<style>
+  :root { --bg:#10140f; --panel:#181d16; --line:#2c3428; --ink:#e7ecdf; --muted:#9aa592; --skip:#e15a45; --watch:#e0b15a; --valid:#7dae6a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 "Segoe UI", Helvetica, Arial, sans-serif; }
+  header { display:flex; justify-content:space-between; gap:16px; align-items:flex-end; padding:22px 28px 14px; border-bottom:1px solid var(--line); }
+  h1 { font-size:22px; margin:0; font-weight:620; }
+  .sub { color:var(--muted); font-size:13px; margin-top:4px; }
+  .price b { font-size:28px; font-variant-numeric:tabular-nums; }
+  main { display:grid; grid-template-columns:320px 1fr 300px; gap:16px; padding:16px 20px 28px; }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  h2 { margin:0 0 10px; font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); }
+  .banner { grid-column:1 / -1; border-radius:12px; padding:16px 18px; display:flex; justify-content:space-between; gap:18px; align-items:center; border:1px solid var(--line); }
+  .banner.flat { background:#2a2416; border-color:#6d5a2c; }
+  .banner.long { background:#172318; border-color:#3d5c36; }
+  .banner.short { background:#2a1714; border-color:#6b332b; }
+  .call { font-size:28px; font-weight:680; letter-spacing:.04em; }
+  .banner p { margin:4px 0 0; max-width:780px; }
+  button { background:#243024; color:var(--ink); border:1px solid #3d4c38; border-radius:8px; padding:8px 12px; font:inherit; cursor:pointer; }
+  canvas { width:100%; height:340px; display:block; background:#121710; border-radius:8px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums; }
+  th, td { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); }
+  .ok { color:var(--valid); } .no { color:var(--skip); } .mid { color:var(--watch); }
+  ul { margin:8px 0 0; padding-left:18px; } li { margin:5px 0; }
+  .note { color:var(--muted); font-size:12px; margin-top:8px; }
+  .wide { grid-column: 1 / -1; }
+  textarea { width:100%; min-height:180px; background:#10140f; color:var(--ink); border:1px solid var(--line); border-radius:8px; padding:8px; font:12px/1.4 ui-monospace, monospace; }
+  @media (max-width:980px) { main { grid-template-columns:1fr; } .banner { flex-direction:column; align-items:flex-start; } }
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Liquidity Sweep</h1>
+    <div class="sub">BTC spot · closed candles only · Kraken XBTUSD. A number not fetched this pass is not live.</div>
+  </div>
+  <div class="price"><b id="px">—</b><div class="sub" id="asof">loading</div></div>
+</header>
+<main>
+  <div class="banner flat" id="banner">
+    <div>
+      <div class="call" id="call">FLAT</div>
+      <p id="why">Loading candles…</p>
+    </div>
+    <div style="display:flex; gap:8px; flex-wrap:wrap;">
+      <button id="refresh">Refresh</button>
+      <button id="copy">Copy metrics</button>
+    </div>
+  </div>
+  <section><h2>Checklist</h2><ul id="checks"></ul><p class="note">Buy arms only if the shelf test and the wick test both pass. A green hour is not a buy.</p></section>
+  <section><h2>4-hour chart</h2><canvas id="chart" width="900" height="340"></canvas><p class="note">Red line is the floor. Green band is the shelf. Gold is the trap.</p></section>
+  <section><h2>Levels</h2><table><thead><tr><th>Level</th><th>Price</th><th>State</th></tr></thead><tbody id="levels"></tbody></table></section>
+  <section><h2>Data metrics</h2><table><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody id="metrics"></tbody></table></section>
+  <section><h2>Spot action</h2><div id="action"></div></section>
+  <section class="wide">
+    <h2>Event log</h2>
+    <p class="note">Scheduled rows are known before they print. Shock rows are kept only after price already moved. A blank cell was not fetched. This is a record, not a forecast.</p>
+    <table><thead><tr><th>Time</th><th>Type</th><th>Event</th><th>Before</th><th>15m</th><th>1h</th><th>24h</th><th>Floor</th><th>Wash</th></tr></thead><tbody id="events"></tbody></table>
+  </section>
+  <section><h2>Copy packet</h2><textarea id="packet" readonly></textarea><p class="note">Copy metrics fills this box and the clipboard. Paste it to another model. The event log is included.</p></section>
+</main>
+<script>
+const FLOOR=82500, RECLAIM=83500, TRAP_LO=82200, TRAP_HI=82500, SHELF_LO=75000, SHELF_HI=76500, T1=85000, T2=90000;
+let data={hourly:[], daily:[], last:null, source:"Kraken XBTUSD", asof:""};
+let events=[];
+const $=(id)=>document.getElementById(id);
+function money(n){ return n==null?"—":Math.round(n).toLocaleString("en-US"); }
+function px(n){ return n==null?"blank":n; }
+function ema(vals, p){ const k=2/(p+1); let e=vals[0]; const o=[e]; for(let i=1;i<vals.length;i++){ e=vals[i]*k+e*(1-k); o.push(e);} return o; }
+function atr(bars, p){ const tr=[]; for(let i=0;i<bars.length;i++){ const b=bars[i]; tr.push(i?Math.max(b.h-b.l, Math.abs(b.h-bars[i-1].c), Math.abs(b.l-bars[i-1].c)):b.h-b.l); } const o=[]; let w=0; for(let i=0;i<tr.length;i++){ if(i<p){ w+=tr[i]; o.push(i===p-1?w/p:null);} else o.push((o[i-1]*(p-1)+tr[i])/p); } return o; }
+function stats(b){ const span=b.h-b.l; if(span<=0) return {wick:0, loc:0}; return {wick:(Math.min(b.o,b.c)-b.l)/span, loc:(b.c-b.l)/span}; }
+function closed(bars, width){ return bars.filter(b=>b.t+width<=Date.now()/1000); }
+function resample(hourly){ const w=4*3600, m={}; hourly.forEach(b=>{ const k=b.t-(b.t%w); const c=m[k]; if(!c) m[k]={t:k,o:b.o,h:b.h,l:b.l,c:b.c,v:b.v}; else { c.h=Math.max(c.h,b.h); c.l=Math.min(c.l,b.l); c.c=b.c; c.v+=b.v; } }); return Object.values(m).sort((a,b)=>a.t-b.t); }
+function analyze(){
+  const daily=closed(data.daily,86400), h4=closed(resample(data.hourly),4*3600);
+  if(daily.length<20||!h4.length) return null;
+  const d=daily.at(-1), h=h4.at(-1), price=data.last;
+  const e20=ema(daily.map(b=>b.c),20).at(-1), a14=atr(daily,14).at(-1);
+  const ext=a14?(d.c-e20)/a14:null;
+  const ds=stats(d), hs=stats(h);
+  const regime2=d.c<FLOOR, inShelf=price>=SHELF_LO&&price<=SHELF_HI;
+  const absorb=ds.wick>=0.5&&ds.loc>=0.65 || hs.wick>=0.5&&hs.loc>=0.65;
+  const shelfBuy=inShelf&&absorb;
+  let call="CASH", tone="short", why="Daily close is under the floor. The bounce into broken support is the trap.", action="Do not buy. Stay 100% cash until the shelf absorbs or the floor is reclaimed.";
+  if(ext!=null&&ext>=2.5&&price>=T1){ call="SELL LAST"; tone="flat"; why="Daily extension is at least 2.5 ATR above EMA20."; action="If holding, sell the last 30%. Do not start a new long."; }
+  else if(price>=T2){ call="SELL 40%"; tone="flat"; why="Price is at the upper target."; action="If holding, sell 40%. This is not an entry."; }
+  else if(price>=T1&&!regime2){ call="SELL 30%"; tone="flat"; why="Price is back at the breakdown origin."; action="If inventory came from the shelf, sell 30%."; }
+  else if(shelfBuy){ call="BUY 30%"; tone="long"; why="Price is inside the shelf and a closed bar rejected the low."; action="Deploy 30% only. Leave 70% for a higher low and the wick midpoint."; }
+  else if(inShelf){ call="WAIT"; tone="flat"; why="Shelf is reached. Absorption is not confirmed."; action="No buy until a closed bar has a lower wick of at least 50% and closes in the top 35%."; }
+  else if(!regime2){ call="NO TRADE"; tone="flat"; why="Floor is reclaimed, but price is not at a boundary."; action="Do not chase the middle."; }
+  return {price,d,h,e20,a14,ext,ds,hs,regime2,inShelf,absorb,shelfBuy,call,tone,why,action,h4};
+}
+function packet(r){
+  if(!r) return "No candles loaded.";
+  const rows=[...events].sort((a,b)=>b.time_utc.localeCompare(a.time_utc)).slice(0,10);
+  return [
+    "You are reading a BTC spot swing snapshot from Liquidity Sweep. Analyze only the numbers below. Do not invent orders, prices, or flows.",
+    "Rules: spot only, no leverage, no shorts. If the daily close is under 82500, do not buy the relief bounce into 82200-82500. A buy is allowed only inside 75000-76500 after a closed 4-hour or daily bar with lower wick >= 50% and close location >= 65%. Then buy 30%, not 100%. Sell 30% at 85000, 40% at 90000, and the last 30% only if daily extension (close-EMA20)/ATR14 is >= 2.5. A number marked blank was not fetched.",
+    "The event log is a record of what already printed, not a forecast. A headline is not a buy.",
+    "Reply with: the call, why it is or is not valid, the spot action, the level that invalidates it, and what must print next. Keep it under 150 words.",
+    "",
+    "Liquidity Sweep snapshot",
+    "As of: "+data.asof+" | "+data.source,
+    "Last price: "+r.price,
+    "Call: "+r.call,
+    "Reason: "+r.why,
+    "Spot action: "+r.action,
+    "Daily close: "+r.d.c,
+    "Daily high: "+r.d.h+" | daily low: "+r.d.l,
+    "Daily wick ratio: "+r.ds.wick.toFixed(4)+" | daily close location: "+r.ds.loc.toFixed(4),
+    "4h close: "+r.h.c+" | 4h high: "+r.h.h+" | 4h low: "+r.h.l,
+    "4h wick ratio: "+r.hs.wick.toFixed(4)+" | 4h close location: "+r.hs.loc.toFixed(4),
+    "EMA20: "+r.e20.toFixed(2)+" | ATR14: "+r.a14.toFixed(2)+" | extension: "+(r.ext==null?"not live":r.ext.toFixed(2)),
+    "Regime: "+(r.regime2?"2 cash":"1 floor reclaimed"),
+    "Floor: "+FLOOR+" | reclaim: "+RECLAIM,
+    "Trap band: "+TRAP_LO+"-"+TRAP_HI,
+    "Shelf: "+SHELF_LO+"-"+SHELF_HI+" | inside shelf: "+r.inShelf,
+    "Absorption pass: "+r.absorb+" | buy 30% armed: "+r.shelfBuy,
+    "Target 1: "+T1+" | target 2: "+T2,
+    "",
+    "Event log",
+    ...rows.map(e=>[e.time_utc, e.kind, e.label, "before="+px(e.btc_before), "15m="+px(e.btc_15m), "1h="+px(e.btc_1h), "24h="+px(e.btc_24h), "under_floor="+e.daily_close_under_floor, e.wash_note].join(" | "))
+  ].join("\n");
+}
+function draw(r){
+  const c=$("chart"), g=c.getContext("2d"), w=c.width, h=c.height;
+  g.clearRect(0,0,w,h);
+  const bars=r.h4.slice(-70), pad=28;
+  const marks=[FLOOR,RECLAIM,TRAP_LO,SHELF_LO,SHELF_HI,T1];
+  let lo=Math.min(...bars.map(b=>b.l), ...marks), hi=Math.max(...bars.map(b=>b.h), ...marks);
+  lo*=0.998; hi*=1.002;
+  const x=i=>pad+(i+0.5)*((w-pad*2)/bars.length), y=p=>pad+(hi-p)/(hi-lo)*(h-pad*2);
+  [[SHELF_LO,"#7dae6a"],[SHELF_HI,"#7dae6a"],[TRAP_LO,"#e0b15a"],[FLOOR,"#e15a45"],[RECLAIM,"#9aa592"],[T1,"#e0b15a"]].forEach(([p,col])=>{ g.strokeStyle=col; g.setLineDash([4,4]); g.beginPath(); g.moveTo(pad,y(p)); g.lineTo(w-pad,y(p)); g.stroke(); g.setLineDash([]); });
+  bars.forEach((b,i)=>{ const up=b.c>=b.o; g.strokeStyle=up?"#7dae6a":"#e15a45"; g.fillStyle=g.strokeStyle; g.beginPath(); g.moveTo(x(i),y(b.h)); g.lineTo(x(i),y(b.l)); g.stroke(); const top=y(Math.max(b.o,b.c)), bot=y(Math.min(b.o,b.c)); g.fillRect(x(i)-3, top, 6, Math.max(1, bot-top)); });
+}
+function renderEvents(){
+  const rows=[...events].sort((a,b)=>b.time_utc.localeCompare(a.time_utc));
+  $("events").innerHTML=rows.map(e=>`<tr><td>${e.time_utc.slice(0,16)}</td><td>${e.kind}</td><td><a href="${e.source}">${e.label}</a></td><td>${px(e.btc_before)}</td><td>${px(e.btc_15m)}</td><td>${px(e.btc_1h)}</td><td>${px(e.btc_24h)}</td><td>${e.daily_close_under_floor==null?"blank":e.daily_close_under_floor}</td><td>${e.wash_note||""}</td></tr>`).join("")||"<tr><td colspan=9>No rows.</td></tr>";
+}
+function render(){
+  const r=analyze();
+  if(!r){ $("why").textContent="No candles yet."; return null; }
+  $("px").textContent="$"+money(r.price);
+  $("asof").textContent=data.asof+" · "+data.source;
+  $("banner").className="banner "+r.tone;
+  $("call").textContent=r.call;
+  $("why").textContent=r.why;
+  $("action").textContent=r.action;
+  const checks=[["Daily close under floor", r.regime2?"yes":"no", !r.regime2],["Inside value shelf", r.inShelf?"yes":"no", r.inShelf],["4h wick >= 50%", (r.hs.wick*100).toFixed(1)+"%", r.hs.wick>=0.5],["4h close in top 35%", (r.hs.loc*100).toFixed(1)+"%", r.hs.loc>=0.65],["Daily wick >= 50%", (r.ds.wick*100).toFixed(1)+"%", r.ds.wick>=0.5],["Daily close in top 35%", (r.ds.loc*100).toFixed(1)+"%", r.ds.loc>=0.65],["Buy 30% armed", r.shelfBuy?"yes":"no", r.shelfBuy],["Extension >= 2.5", r.ext==null?"not live":r.ext.toFixed(2), r.ext!=null&&r.ext>=2.5]];
+  $("checks").innerHTML=checks.map(([k,v,ok])=>`<li><b class="${ok?"ok":"no"}">${v}</b> — ${k}</li>`).join("");
+  const state=(lo,hi)=>r.price>=lo&&r.price<=hi?"inside":r.price>hi?"above":"below";
+  $("levels").innerHTML=[["Floor", FLOOR, r.regime2?"broken":"held"],["Reclaim", RECLAIM, r.price>=RECLAIM?"above":"below"],["Trap", TRAP_LO+"–"+TRAP_HI, state(TRAP_LO,TRAP_HI)],["Shelf", SHELF_LO+"–"+SHELF_HI, state(SHELF_LO,SHELF_HI)],["Target 1", T1, r.price>=T1?"tagged":"below"],["Target 2", T2, r.price>=T2?"tagged":"below"]].map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td><td class="${String(s[2]).includes("held")||s[2]==="inside"?"ok":"mid"}">${s[2]}</td></tr>`).join("");
+  $("metrics").innerHTML=[["Last", money(r.price)],["Daily close", money(r.d.c)],["Daily high / low", money(r.d.h)+" / "+money(r.d.l)],["Daily wick", (r.ds.wick*100).toFixed(1)+"%"],["Daily close location", (r.ds.loc*100).toFixed(1)+"%"],["4h close", money(r.h.c)],["4h high / low", money(r.h.h)+" / "+money(r.h.l)],["4h wick", (r.hs.wick*100).toFixed(1)+"%"],["4h close location", (r.hs.loc*100).toFixed(1)+"%"],["EMA20", money(r.e20)],["ATR14", money(r.a14)],["Extension", r.ext==null?"not live":r.ext.toFixed(2)],["Regime", r.regime2?"2 · cash":"1 · floor held"],["Absorption", r.absorb?"pass":"fail"],["Buy permission", r.shelfBuy?"30% armed":"locked"]].map(s=>`<tr><td>${s[0]}</td><td>${s[1]}</td></tr>`).join("");
+  $("packet").value=packet(r);
+  draw(r);
+  renderEvents();
+  return r;
+}
+function mapKraken(rows){ return rows.map(r=>({t:+r[0], o:+r[1], h:+r[2], l:+r[3], c:+r[4], v:+r[6]})); }
+async function loadEvents(){
+  try { events=(await fetch("events.json?ts="+Date.now()).then(r=>r.json())).events||[]; }
+  catch(e){ events=[]; }
+  renderEvents();
+}
+async function load(){
+  const [ticker, hourly, daily]=await Promise.all([
+    fetch("https://api.kraken.com/0/public/Ticker?pair=XBTUSD").then(r=>r.json()),
+    fetch("https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=60").then(r=>r.json()),
+    fetch("https://api.kraken.com/0/public/OHLC?pair=XBTUSD&interval=1440").then(r=>r.json())
+  ]);
+  data.last=+ticker.result.XXBTZUSD.c[0];
+  data.hourly=mapKraken(hourly.result.XXBTZUSD);
+  data.daily=mapKraken(daily.result.XXBTZUSD);
+  data.asof=new Date().toISOString().slice(0,19)+"Z";
+  data.source="Kraken XBTUSD";
+  render();
+}
+$("refresh").onclick=async()=>{
+  $("refresh").textContent="Refreshing";
+  try { await loadEvents(); await load(); $("refresh").textContent="Updated"; }
+  catch(e){ $("asof").textContent="Price feed failed."; $("refresh").textContent="Failed"; }
+  setTimeout(()=>{ $("refresh").textContent="Refresh"; }, 1200);
+};
+$("copy").onclick=async()=>{
+  const r=render();
+  const text=packet(r);
+  $("packet").value=text;
+  try { await navigator.clipboard.writeText(text); $("copy").textContent="Copied"; }
+  catch(e){ $("packet").select(); document.execCommand("copy"); $("copy").textContent="Copied"; }
+  setTimeout(()=>{ $("copy").textContent="Copy metrics"; }, 1400);
+};
+loadEvents();
+load().catch(()=>{ $("why").textContent="Could not load Kraken candles. Press Refresh."; });
+</script>
+</body>
+</html>
