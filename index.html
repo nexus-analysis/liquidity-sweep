@@ -165,7 +165,7 @@ $("copy").onclick=async()=>{
   const text=packet(r);
   $("packet").value=text;
   try { await navigator.clipboard.writeText(text); $("copy").textContent="Copied"; }
-  catch(e){ $("packet").select(); document.execCommand("copy"); $("copy").textContent="Copied"); }
+  catch(e){ $("packet").select(); document.execCommand("copy"); $("copy").textContent="Copied"; }
   setTimeout(()=>{ $("copy").textContent="Copy metrics"; }, 1400);
 };
 load().catch(()=>{ $("why").textContent="Could not load Kraken candles. Press Refresh."; });
